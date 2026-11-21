@@ -296,7 +296,9 @@ test("a hidden local frame keeps the host terminal reserved without attaching un
 	await openDefaultWorkbench(page);
 	await page.getByTestId("open-settings").click();
 	await page.getByTestId("settings-nav-layout").click();
-	const focusPreset = page.getByTestId("layout-preset").filter({ hasText: "Focus" });
+	const focusPreset = page
+		.getByTestId("layout-preset")
+		.filter({ has: page.getByText("Focus", { exact: true }) });
 	await focusPreset.getByRole("button", { name: "Apply now…" }).click();
 	await page.getByTestId("layout-apply-confirm").click();
 	await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();

@@ -36,6 +36,8 @@ export type OpenTabPlacement = Pick<LayoutOpenOptions, "activate" | "targetGroup
 interface ReadFlight {
 	intent: TabIntent;
 	placement: OpenTabPlacement;
+	/** A passive caller's veto, checked once the read lands: true drops the open instead of installing it. */
+	stale: (() => boolean) | undefined;
 	claimPreview: boolean;
 	navigation: CenterNavigationStamp | null;
 	requestedAt: number;
@@ -58,6 +60,7 @@ async function openReadTab<T>(
 	requestedNavigation?: CenterNavigationStamp | null,
 	claimPreview = false,
 	placement: OpenTabPlacement = {},
+	stale?: () => boolean,
 ): Promise<void> {
 	const navigation =
 		requestedNavigation === undefined
@@ -76,6 +79,7 @@ async function openReadTab<T>(
 			placement.activate === false && pending.placement.activate !== false;
 		if (!passiveJoiningForeground) {
 			pending.placement = placement;
+			pending.stale = stale;
 			pending.navigation = navigation;
 			pending.requestedAt = navTick(workspaceId);
 		}
@@ -102,6 +106,7 @@ async function openReadTab<T>(
 	const flight: ReadFlight = {
 		intent,
 		placement,
+		stale,
 		claimPreview: intent === "preview" || claimPreview,
 		navigation,
 		requestedAt: navTick(workspaceId),
@@ -123,6 +128,7 @@ async function installRead<T>(
 ): Promise<void> {
 	try {
 		const payload = await read();
+		if (flight.stale?.()) return;
 		const currentState = useAppStore.getState();
 		const overtaken = flight.navigation
 			? !isCenterNavigationCurrent(currentState, workspaceId, flight.navigation)
@@ -160,6 +166,7 @@ export function openFileInTab(
 	intent: TabIntent,
 	requestedNavigation?: CenterNavigationStamp | null,
 	placement: OpenTabPlacement = {},
+	stale?: () => boolean,
 ): Promise<void> {
 	const path = projectRelativePath(
 		reported,
@@ -185,6 +192,7 @@ export function openFileInTab(
 		requestedNavigation,
 		false,
 		placement,
+		stale,
 	);
 }
 
@@ -324,6 +332,17 @@ export async function openChangesTab(
  * selected there and flashes the line; without one it only joins the strip, so a single-group layout never
  * swaps the conversation out from under the user.
  */
+const userNavigationEpochs = new Map<string, number>();
+
+/** Counts the user's manual navigation in a workspace's editors; a follow that began earlier must not reveal. */
+export function noteUserNavigation(workspaceId: string): void {
+	userNavigationEpochs.set(workspaceId, (userNavigationEpochs.get(workspaceId) ?? 0) + 1);
+}
+
+export function userNavigationEpoch(workspaceId: string): number {
+	return userNavigationEpochs.get(workspaceId) ?? 0;
+}
+
 export async function followFileAtLine(
 	workspaceId: string,
 	path: string,
@@ -339,10 +358,16 @@ export async function followFileAtLine(
 		path,
 		selectWorkspaceById(useAppStore.getState(), workspaceId)?.worktreePath,
 	);
-	await openFileInTab(workspaceId, canonical, "preview", null, {
-		activate: false,
-		...(targetGroupId ? { targetGroupId } : {}),
-	});
+	if (!stillFollowing()) return;
+	// The preview must not be installed over the user's own selection once they paused or navigated.
+	await openFileInTab(
+		workspaceId,
+		canonical,
+		"preview",
+		null,
+		{ activate: false, ...(targetGroupId ? { targetGroupId } : {}) },
+		() => !stillFollowing(),
+	);
 	// Opening may have waited on a read; the user's pause or off switch wins over a stale follow.
 	if (!stillFollowing()) return;
 	useAppStore

@@ -30,7 +30,9 @@ const { useAppStore } = await import("../store");
 type WorkspaceLayoutDocument = ReturnType<
 	typeof useAppStore.getState
 >["layoutDocumentsByWorkspace"][string];
-const { openChangesTab, openDiffInTab, openFileAtLine } = await import("./openTabs");
+const { followFileAtLine, openChangesTab, openDiffInTab, openFileAtLine } = await import(
+	"./openTabs"
+);
 
 const workspace = (overrides: Partial<Workspace> = {}): Workspace => ({
 	id: "w1",
@@ -499,4 +501,29 @@ test("a removed workspace rejects a late review-tab request", async () => {
 	useAppStore.setState({ removedWorkspaceIds: { w1: true } });
 	await openChangesTab("w1", { kind: "branch" }, {}, "keep");
 	expect(useAppStore.getState().tabsByWorkspace.w1 ?? []).toHaveLength(0);
+});
+
+const readResult = {
+	content: { kind: "text", text: "x" },
+	meta: { hash: "h", byteLength: 1, text: true },
+};
+
+test("a follow still reading when the user navigates never installs its preview", async () => {
+	let following = true;
+	const follow = followFileAtLine("w1", "src/a.ts", 1, undefined, undefined, () => following);
+	expect(requests.map((request) => request.method)).toEqual(["fs.readFile"]);
+	following = false;
+	pending?.resolve(readResult);
+	await follow;
+
+	expect(useAppStore.getState().tabsByWorkspace.w1 ?? []).toEqual([]);
+});
+
+test("a follow that is still current installs its preview and reveals the line", async () => {
+	const follow = followFileAtLine("w1", "src/a.ts", 7, undefined, undefined, () => true);
+	pending?.resolve(readResult);
+	await follow;
+
+	const [tab] = useAppStore.getState().tabsByWorkspace.w1 ?? [];
+	expect(tab?.kind === "file" && tab.reveal?.line).toBe(7);
 });

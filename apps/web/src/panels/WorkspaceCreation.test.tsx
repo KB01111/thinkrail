@@ -53,7 +53,9 @@ test("a running creation shows its percent and progress, with no actions (no can
 
 	const card = view(creation());
 	expect(card).toContain(text("panels.workspaceCreation.checkingOutAt", { percent: 42 }));
-	expect(card).toContain("420 of 1,000 files · from origin/main");
+	expect(card).toContain(
+		`${(420).toLocaleString()} of ${(1000).toLocaleString()} files · from origin/main`,
+	);
 	expect(card).toContain("Add retry to the webhook");
 	expect(card).toContain("2 images attached");
 });

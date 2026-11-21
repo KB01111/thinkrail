@@ -52,6 +52,7 @@ import {
 	selectSkillsStale,
 	selectSupportsModelPicker,
 	selectUnnamedChatFirstPrompts,
+	selectWorkspaceAgentRunning,
 	selectWorkspaceIsRunning,
 	selectWorkspaceNeedsAttention,
 	selectWorkspaceReadAction,
@@ -1061,5 +1062,54 @@ describe("the first prompt of an unnamed chat", () => {
 			s1: "Fix the login redirect",
 			s4: "Plan this one",
 		});
+	});
+});
+
+describe("selectWorkspaceAgentRunning", () => {
+	const idle = {
+		execution: "idle",
+		runId: null,
+		needsInput: null,
+		completion: null,
+		completionUnread: false,
+		queuedCount: 0,
+		backgroundWork: false,
+	} as const;
+	const chat = {
+		kind: "chat",
+		id: "c1",
+		workspaceId: "w1",
+		sessionId: "s1",
+	} as unknown as EditorTab;
+	const base = {
+		tabsByWorkspace: { w1: [chat] },
+		sessions: { s1: { isStreaming: true } },
+		sessionStateByWorkspace: {},
+	};
+
+	test("falls back to a chat's streaming flag on an older host with no session-state records", () => {
+		expect(selectWorkspaceIsRunning(base, "w1")).toBe(false);
+		expect(selectWorkspaceAgentRunning(base, "w1")).toBe(true);
+		expect(
+			selectWorkspaceAgentRunning({ ...base, sessions: { s1: { isStreaming: false } } }, "w1"),
+		).toBe(false);
+	});
+
+	test("trusts the host's records over a stale streaming flag", () => {
+		const reported = (execution: "idle" | "running") => ({
+			...base,
+			sessionStateByWorkspace: {
+				w1: {
+					s1: {
+						sessionId: "s1",
+						workspaceId: "w1",
+						projectId: "p1",
+						state: { ...idle, execution },
+					},
+				},
+			},
+		});
+		expect(selectWorkspaceAgentRunning(reported("idle") as never, "w1")).toBe(false);
+		expect(selectWorkspaceAgentRunning(reported("running") as never, "w1")).toBe(true);
 	});
 });

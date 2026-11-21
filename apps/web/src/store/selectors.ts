@@ -609,6 +609,45 @@ export function selectWorkspaceIsRunning(
 	);
 }
 
+interface WorkspaceRunProjection extends SessionStateProjection {
+	tabsByWorkspace: Record<string, readonly EditorTab[] | undefined>;
+	sessions: Record<string, Pick<SessionRuntime, "isStreaming"> | undefined>;
+}
+
+/**
+ * Whether an agent runs in the workspace. The host's session-state records are the truth wherever it sends
+ * them; only a workspace with none (an older host) falls back to each chat's own streaming flag.
+ */
+export function selectWorkspaceAgentRunning(
+	state: WorkspaceRunProjection,
+	workspaceId: string,
+): boolean {
+	if (Object.keys(state.sessionStateByWorkspace[workspaceId] ?? {}).length > 0) {
+		return selectWorkspaceIsRunning(state, workspaceId);
+	}
+	return (state.tabsByWorkspace[workspaceId] ?? []).some(
+		(tab) => tab.kind === "chat" && state.sessions[tab.sessionId]?.isStreaming === true,
+	);
+}
+
+/**
+ * Whether the file toolbar carries the Follow Agent controls: while an agent runs, or once a pause needs its
+ * Resume pill. A manual navigation only pauses while an agent runs, so the click that pauses never makes the
+ * toolbar appear under the pointer.
+ */
+export function selectFollowToolbarVisible(
+	state: WorkspaceRunProjection & {
+		followAgent: boolean;
+		followPausedByWorkspace: Record<string, true>;
+	},
+	workspaceId: string,
+): boolean {
+	return (
+		selectWorkspaceAgentRunning(state, workspaceId) ||
+		(state.followAgent && state.followPausedByWorkspace[workspaceId] === true)
+	);
+}
+
 export function selectWorkspaceSettleBlocked(
 	state: SessionStateProjection,
 	workspaceId: string,

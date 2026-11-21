@@ -48,9 +48,11 @@ import {
 	selectDiffScope,
 	selectFilesTreeView,
 	selectFollowActive,
+	selectFollowToolbarVisible,
 	selectReadyCompletionAck,
 	selectSkillsStale,
 	selectUnnamedChatFirstPrompts,
+	selectWorkspaceAgentRunning,
 	selectWorkspaceNavTick,
 	selectWorkspaceSessionIds,
 	selectWorkspaceTick,
@@ -5509,6 +5511,53 @@ test("Follow Agent pauses per workspace, resumes, and turning it back on clears 
 	s().setFollowAgent(true);
 	expect(s().followPausedByWorkspace).toEqual({});
 	expect(selectFollowActive(s(), "ws1")).toBe(true);
+});
+
+test("the click that pauses Follow Agent never changes the toolbar's visibility, so it cannot shift the editor under the pointer", () => {
+	const s = () => useAppStore.getState();
+	const idle = {
+		execution: "idle",
+		runId: null,
+		needsInput: null,
+		completion: null,
+		completionUnread: false,
+		queuedCount: 0,
+		backgroundWork: false,
+	};
+	const chat = { kind: "chat", id: "c1", workspaceId: "w1", sessionId: "s1" };
+	const record = (execution: string) => ({
+		w1: { s1: { sessionId: "s1", state: { ...idle, execution } } },
+	});
+	const scenarios = [
+		{ name: "idle, no records", streaming: false, records: {} },
+		{ name: "older host streaming", streaming: true, records: {} },
+		{ name: "host reports running", streaming: false, records: record("running") },
+		{ name: "host reports idle, stale flag", streaming: true, records: record("idle") },
+	];
+	for (const { name, streaming, records } of scenarios) {
+		useAppStore.setState({
+			followAgent: true,
+			followPausedByWorkspace: {},
+			tabsByWorkspace: { w1: [chat] },
+			sessions: { s1: { isStreaming: streaming } },
+			sessionStateByWorkspace: records,
+		} as never);
+		const before = selectFollowToolbarVisible(s(), "w1");
+		if (selectWorkspaceAgentRunning(s(), "w1")) s().pauseFollow("w1");
+		expect({ name, visible: selectFollowToolbarVisible(s(), "w1") }).toEqual({
+			name,
+			visible: before,
+		});
+	}
+
+	useAppStore.setState({
+		followAgent: true,
+		followPausedByWorkspace: {},
+		tabsByWorkspace: { w1: [chat] },
+		sessions: { s1: { isStreaming: true } },
+		sessionStateByWorkspace: {},
+	} as never);
+	expect(selectFollowToolbarVisible(s(), "w1")).toBe(true);
 });
 
 test("revealFileTab stamps a reveal on the file tab, repeats through tick, and switches the renderer when asked", () => {

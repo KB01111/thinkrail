@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { followFileAtLine } from "../panels/openTabs";
+import { followFileAtLine, userNavigationEpoch } from "../panels/openTabs";
 import { selectFollowActive, useAppStore } from "../store";
 import { getTransport } from "../transport";
 import {
 	changedLine,
+	createFollowQueue,
 	type FileMutation,
 	followTargetGroupId,
 	newFileMutations,
@@ -24,6 +25,7 @@ async function follow(
 	workspaceId: string,
 	chatTabId: string,
 	mutation: FileMutation,
+	isStale: () => boolean,
 ): Promise<void> {
 	try {
 		const { content } = await getTransport().request("fs.readFile", {
@@ -32,6 +34,7 @@ async function follow(
 		});
 		const state = useAppStore.getState();
 		if (state.activeWorkspaceId !== workspaceId || !selectFollowActive(state, workspaceId)) return;
+		if (isStale()) return;
 		const document = state.layoutDocumentsByWorkspace[workspaceId];
 		const groups = document ? collectCenterGroups(document.center) : [];
 		await followFileAtLine(
@@ -43,7 +46,9 @@ async function follow(
 			() => {
 				const current = useAppStore.getState();
 				return (
-					current.activeWorkspaceId === workspaceId && selectFollowActive(current, workspaceId)
+					current.activeWorkspaceId === workspaceId &&
+					selectFollowActive(current, workspaceId) &&
+					!isStale()
 				);
 			},
 		);
@@ -61,7 +66,7 @@ export function useFollowAgent(): void {
 		const seen = new Set<string>();
 		const primed = new Set<string>();
 		// Reads finish in any order; chaining them keeps the editor on the newest mutation.
-		let followQueue: Promise<void> = Promise.resolve();
+		const enqueue = createFollowQueue(userNavigationEpoch);
 		const scan = (
 			state: ReturnType<typeof useAppStore.getState>,
 			previous: typeof state | null,
@@ -89,7 +94,7 @@ export function useFollowAgent(): void {
 				for (const mutation of fresh) {
 					seen.add(mutation.toolCallId);
 					if (following) {
-						followQueue = followQueue.then(() => follow(workspaceId, tab.id, mutation));
+						enqueue(workspaceId, (isStale) => follow(workspaceId, tab.id, mutation, isStale));
 					}
 				}
 			}

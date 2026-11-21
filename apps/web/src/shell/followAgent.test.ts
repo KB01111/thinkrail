@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatTurn, ToolResultState } from "../chat/types";
-import { changedLine, followTargetGroupId, newFileMutations } from "./followAgent";
+import {
+	changedLine,
+	createFollowQueue,
+	followTargetGroupId,
+	newFileMutations,
+} from "./followAgent";
 import type { LayoutCenterGroup } from "./layout";
 
 function assistant(id: string, calls: Array<{ id: string; name: string; args: object }>): ChatTurn {
@@ -97,5 +102,46 @@ describe("followTargetGroupId", () => {
 
 	it("leaves the choice to the layout when the chat has the only group", () => {
 		expect(followTargetGroupId([group("g1", [chat, file])], "chat-1")).toBeUndefined();
+	});
+});
+
+describe("createFollowQueue", () => {
+	it("cancels every follow queued before a navigation, including one waiting behind a held read", async () => {
+		const epochs = new Map<string, number>();
+		const epoch = (workspaceId: string) => epochs.get(workspaceId) ?? 0;
+		const enqueue = createFollowQueue(epoch);
+		const outcomes: string[] = [];
+		let releaseRead = () => {};
+		const heldRead = new Promise<void>((resolve) => {
+			releaseRead = resolve;
+		});
+
+		enqueue("ws", async (isStale) => {
+			await heldRead;
+			outcomes.push(isStale() ? "first:stale" : "first:fresh");
+		});
+		enqueue("ws", async (isStale) => {
+			outcomes.push(isStale() ? "second:stale" : "second:fresh");
+		});
+		epochs.set("ws", 1);
+		enqueue("ws", async (isStale) => {
+			outcomes.push(isStale() ? "third:stale" : "third:fresh");
+		});
+		releaseRead();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+
+		expect(outcomes).toEqual(["first:stale", "second:stale", "third:fresh"]);
+	});
+
+	it("keeps another workspace's navigation out of a follow", async () => {
+		const epochs = new Map<string, number>();
+		const enqueue = createFollowQueue((workspaceId) => epochs.get(workspaceId) ?? 0);
+		const seen: boolean[] = [];
+		enqueue("a", async (isStale) => {
+			epochs.set("b", 5);
+			seen.push(isStale());
+		});
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(seen).toEqual([false]);
 	});
 });

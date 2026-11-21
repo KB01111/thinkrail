@@ -2,6 +2,18 @@ import type { ToolStatus } from "@thinkrail/extension-api/web";
 import type { ChatTurn, ToolResultState } from "../chat/types";
 import type { LayoutCenterGroup } from "./layout";
 
+/**
+ * Chains follow jobs one after another. Each job learns, through `isStale`, whether the user navigated
+ * since it was *queued* (not since it started), so one click cancels every follow waiting ahead of it.
+ */
+export function createFollowQueue(navigationEpoch: (workspaceId: string) => number) {
+	let tail: Promise<void> = Promise.resolve();
+	return (workspaceId: string, job: (isStale: () => boolean) => Promise<void>): void => {
+		const queuedAt = navigationEpoch(workspaceId);
+		tail = tail.then(() => job(() => navigationEpoch(workspaceId) !== queuedAt));
+	};
+}
+
 export type FileMutationKind = "edit" | "write";
 
 export interface FileMutation {
